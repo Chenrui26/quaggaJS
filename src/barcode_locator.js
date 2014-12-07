@@ -14,7 +14,7 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         _patchLabelGrid,
         _imageToPatchGrid,
         _binaryImageWrapper,
-        _halfSample = true,
+        _halfSample = false,
         _patchSize,
         _canvasContainer = {
             ctx : {
@@ -26,7 +26,8 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         },
         _numPatches = {x: 0, y: 0},
         _inputImageWrapper,
-        _skeletonizer;
+        _skeletonizer,
+        self = this;
 
     function initBuffers() {
         var skeletonImageData;
@@ -55,7 +56,7 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         skeletonImageData = new ArrayBuffer(_patchSize.x * _patchSize.y * 16);
         _subImageWrapper = new ImageWrapper(_patchSize, new Uint8Array(skeletonImageData, 0, _patchSize.x * _patchSize.y));
         _skelImageWrapper = new ImageWrapper(_patchSize, new Uint8Array(skeletonImageData, _patchSize.x * _patchSize.y * 3, _patchSize.x * _patchSize.y), undefined, true);
-        _skeletonizer = skeletonizer(window, {
+        _skeletonizer = skeletonizer(self, {
             size : _patchSize.x
         }, skeletonImageData);
 
@@ -68,14 +69,14 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
     }
 
     function initCanvas() {
-        _canvasContainer.dom.binary = document.createElement("canvas");
+       /*  _canvasContainer.dom.binary = document.createElement("canvas");
         _canvasContainer.dom.binary.className = "binaryBuffer";
         if (_config.showCanvas === true) {
             document.querySelector("#debug").appendChild(_canvasContainer.dom.binary);
         }
         _canvasContainer.ctx.binary = _canvasContainer.dom.binary.getContext("2d");
         _canvasContainer.dom.binary.width = _binaryImageWrapper.size.x;
-        _canvasContainer.dom.binary.height = _binaryImageWrapper.size.y;
+        _canvasContainer.dom.binary.height = _binaryImageWrapper.size.y; */
     }
 
     /**

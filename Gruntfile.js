@@ -16,7 +16,7 @@ module.exports = function(grunt) {
             all : ['Gruntfile.js', 'src/*.js']
         },
         requirejs : {
-            compile : {
+            quagga : {
                 options : {
                     almond : true,
                     wrap : {
@@ -52,6 +52,43 @@ module.exports = function(grunt) {
                         "glMatrixAddon" : "glMatrixAddon"
                     }
                 }
+            },
+            locator : {
+                options : {
+                    almond : true,
+                    wrap : {
+                        startFile : 'build/locator_start.frag',
+                        endFile : 'build/locator_end.frag'
+                    },
+                    "baseUrl" : "src",
+                    "name" : "barcode_locator",
+                    "out" : "dist/locator.js",
+                    "include" : ['barcode_locator'],
+                    "optimize" : "none",
+                    "findNestedDependencies" : true,
+                    "skipSemiColonInsertion" : true,
+
+                    "shim" : {
+                        "typedefs" : {
+                            "deps" : [],
+                            "exports" : "typedefs"
+                        },
+                        "glMatrix" : {
+                            "deps" : ["typedefs"],
+                            "exports" : "glMatrix"
+                        },
+                        "glMatrixAddon" : {
+                            "deps" : ["glMatrix"],
+                            "exports" : "glMatrixAddon"
+                        }
+                    },
+
+                    "paths" : {
+                        "typedefs" : "typedefs",
+                        "glMatrix" : "vendor/glMatrix",
+                        "glMatrixAddon" : "glMatrixAddon"
+                    }
+                }
             }
         }
     });
@@ -62,6 +99,6 @@ module.exports = function(grunt) {
 
     grunt.loadNpmTasks('grunt-requirejs');
     // Default task(s).
-    grunt.registerTask('default', ['jshint', 'requirejs', 'uglify']);
+    grunt.registerTask('default', ['jshint', 'requirejs']);
 
 }; 

@@ -21,11 +21,25 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
         _inputImageWrapper,
         _boxSize,
         _decoder,
+        _locatorWorker,
         _initialized = false;
 
     function initialize(config) {
         _config = HtmlUtils.mergeObjects(_config, config);
         initInputStream();
+        Events.subscribe("located", located);
+    }
+    
+    function located(boxes) {
+        var result;
+        
+        console.timeEnd("Localize");
+        if (boxes) {
+            result = _decoder.decodeFromBoundingBoxes(boxes);
+            if (result && result.codeResult) {
+                Events.publish("detected", result.codeResult.code);
+            }
+        }
     }
 
     function initConfig() {
@@ -86,10 +100,7 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
 
         initConfig();
         _inputStream.play();
-        _initialized = true;
-        if (_config.readyFunc) {
-            _config.readyFunc.apply();
-        }
+        initWorkers();
     }
 
     function initCanvas() {
@@ -137,35 +148,47 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
                 vec2.create([_inputStream.getWidth() - 20, _inputStream.getHeight() / 2 + 100]), 
                 vec2.create([_inputStream.getWidth() - 20, _inputStream.getHeight() / 2 - 100])
             ];
-        BarcodeLocator.init(_config.locator, {
-            inputImageWrapper : _inputImageWrapper
-        });
+    }
+    
+    function initWorkers() {
+        var data;
+        
+        _locatorWorker = new Worker('../src/worker_locator.js');
+        data = _inputImageWrapper.data;
+        _inputImageWrapper.data = null;
+        _locatorWorker.postMessage({cmd: 'init', inputImageWrapper: _inputImageWrapper});
+        _inputImageWrapper.data = data;
+        _locatorWorker.onmessage = function(e) {
+            if (e.data.event === 'initialized') {
+                _initialized = true;
+                if (_config.readyFunc) {
+                    _config.readyFunc.apply();
+                }
+            } else if (e.data.event === 'located') {
+                _inputImageWrapper.data = new Uint8Array(e.data.buffer);
+                _framegrabber.attachData(_inputImageWrapper.data);
+                Events.publish("located", e.data.result);
+            }
+        };
     }
 
     function getBoundingBoxes() {
         var boxes;
 
         if (_config.locate) {
-            boxes = BarcodeLocator.locate();
+            console.time("Localize");
+            _locatorWorker.postMessage({cmd: 'locate', buffer: _inputImageWrapper.data}, [_inputImageWrapper.data.buffer]);
         } else {
             boxes = [_boxSize];
+            Events.publish("located", boxes);
         }
-        return boxes;
     }
 
     function update() {
-        var result,
-            boxes;
 
         if (_framegrabber.grab()) {
             _canvasContainer.ctx.overlay.clearRect(0, 0, _inputImageWrapper.size.x, _inputImageWrapper.size.y);
-            boxes = getBoundingBoxes();
-            if (boxes) {
-                result = _decoder.decodeFromBoundingBoxes(boxes);
-                if (result && result.codeResult) {
-                    Events.publish("detected", result.codeResult.code);
-                }
-            }
+            getBoundingBoxes();
         }
     }
 
@@ -207,7 +230,7 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
                 type : "ImageStream",
                 src : config.src,
                 sequence : false,
-                size: 800
+                size: 1280
             };
             config.readyFunc = function() {
                 Events.subscribe("detected", function(result) {

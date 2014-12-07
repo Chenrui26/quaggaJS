@@ -1622,20 +1622,22 @@ define('input_stream',["image_loader"], function(ImageLoader) {
 
 glMatrixArrayType = Float32Array;
 
-window.requestAnimFrame = (function() {
-  return window.requestAnimationFrame ||
-     window.webkitRequestAnimationFrame ||
-     window.mozRequestAnimationFrame ||
-     window.oRequestAnimationFrame ||
-     window.msRequestAnimationFrame ||
-     function(/* function FrameRequestCallback */ callback, /* DOMElement Element */ element) {
-       window.setTimeout(callback, 1000/60);
-     };
-})();
-
-
-navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
-window.URL = window.URL || window.webkitURL || window.mozURL || window.msURL;
+if (typeof window !== 'undefined') {
+    window.requestAnimFrame = (function() {
+      return window.requestAnimationFrame ||
+         window.webkitRequestAnimationFrame ||
+         window.mozRequestAnimationFrame ||
+         window.oRequestAnimationFrame ||
+         window.msRequestAnimationFrame ||
+         function(/* function FrameRequestCallback */ callback, /* DOMElement Element */ element) {
+           window.setTimeout(callback, 1000/60);
+         };
+    })();
+    
+    
+    navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+    window.URL = window.URL || window.webkitURL || window.mozURL || window.msURL;
+}
 define("typedefs", (function (global) {
     return function () {
         var ret, fn;
@@ -5708,7 +5710,7 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         _patchLabelGrid,
         _imageToPatchGrid,
         _binaryImageWrapper,
-        _halfSample = true,
+        _halfSample = false,
         _patchSize,
         _canvasContainer = {
             ctx : {
@@ -5720,7 +5722,8 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         },
         _numPatches = {x: 0, y: 0},
         _inputImageWrapper,
-        _skeletonizer;
+        _skeletonizer,
+        self = this;
 
     function initBuffers() {
         var skeletonImageData;
@@ -5749,7 +5752,7 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         skeletonImageData = new ArrayBuffer(_patchSize.x * _patchSize.y * 16);
         _subImageWrapper = new ImageWrapper(_patchSize, new Uint8Array(skeletonImageData, 0, _patchSize.x * _patchSize.y));
         _skelImageWrapper = new ImageWrapper(_patchSize, new Uint8Array(skeletonImageData, _patchSize.x * _patchSize.y * 3, _patchSize.x * _patchSize.y), undefined, true);
-        _skeletonizer = skeletonizer(window, {
+        _skeletonizer = skeletonizer(self, {
             size : _patchSize.x
         }, skeletonImageData);
 
@@ -5762,14 +5765,14 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
     }
 
     function initCanvas() {
-        _canvasContainer.dom.binary = document.createElement("canvas");
+       /*  _canvasContainer.dom.binary = document.createElement("canvas");
         _canvasContainer.dom.binary.className = "binaryBuffer";
         if (_config.showCanvas === true) {
             document.querySelector("#debug").appendChild(_canvasContainer.dom.binary);
         }
         _canvasContainer.ctx.binary = _canvasContainer.dom.binary.getContext("2d");
         _canvasContainer.dom.binary.width = _binaryImageWrapper.size.x;
-        _canvasContainer.dom.binary.height = _binaryImageWrapper.size.y;
+        _canvasContainer.dom.binary.height = _binaryImageWrapper.size.y; */
     }
 
     /**
@@ -7011,11 +7014,25 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
         _inputImageWrapper,
         _boxSize,
         _decoder,
+        _locatorWorker,
         _initialized = false;
 
     function initialize(config) {
         _config = HtmlUtils.mergeObjects(_config, config);
         initInputStream();
+        Events.subscribe("located", located);
+    }
+    
+    function located(boxes) {
+        var result;
+        
+        console.timeEnd("Localize");
+        if (boxes) {
+            result = _decoder.decodeFromBoundingBoxes(boxes);
+            if (result && result.codeResult) {
+                Events.publish("detected", result.codeResult.code);
+            }
+        }
     }
 
     function initConfig() {
@@ -7076,10 +7093,7 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
 
         initConfig();
         _inputStream.play();
-        _initialized = true;
-        if (_config.readyFunc) {
-            _config.readyFunc.apply();
-        }
+        initWorkers();
     }
 
     function initCanvas() {
@@ -7127,35 +7141,47 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
                 vec2.create([_inputStream.getWidth() - 20, _inputStream.getHeight() / 2 + 100]), 
                 vec2.create([_inputStream.getWidth() - 20, _inputStream.getHeight() / 2 - 100])
             ];
-        BarcodeLocator.init(_config.locator, {
-            inputImageWrapper : _inputImageWrapper
-        });
+    }
+    
+    function initWorkers() {
+        var data;
+        
+        _locatorWorker = new Worker('../src/worker_locator.js');
+        data = _inputImageWrapper.data;
+        _inputImageWrapper.data = null;
+        _locatorWorker.postMessage({cmd: 'init', inputImageWrapper: _inputImageWrapper});
+        _inputImageWrapper.data = data;
+        _locatorWorker.onmessage = function(e) {
+            if (e.data.event === 'initialized') {
+                _initialized = true;
+                if (_config.readyFunc) {
+                    _config.readyFunc.apply();
+                }
+            } else if (e.data.event === 'located') {
+                _inputImageWrapper.data = new Uint8Array(e.data.buffer);
+                _framegrabber.attachData(_inputImageWrapper.data);
+                Events.publish("located", e.data.result);
+            }
+        };
     }
 
     function getBoundingBoxes() {
         var boxes;
 
         if (_config.locate) {
-            boxes = BarcodeLocator.locate();
+            console.time("Localize");
+            _locatorWorker.postMessage({cmd: 'locate', buffer: _inputImageWrapper.data}, [_inputImageWrapper.data.buffer]);
         } else {
             boxes = [_boxSize];
+            Events.publish("located", boxes);
         }
-        return boxes;
     }
 
     function update() {
-        var result,
-            boxes;
 
         if (_framegrabber.grab()) {
             _canvasContainer.ctx.overlay.clearRect(0, 0, _inputImageWrapper.size.x, _inputImageWrapper.size.y);
-            boxes = getBoundingBoxes();
-            if (boxes) {
-                result = _decoder.decodeFromBoundingBoxes(boxes);
-                if (result && result.codeResult) {
-                    Events.publish("detected", result.codeResult.code);
-                }
-            }
+            getBoundingBoxes();
         }
     }
 
@@ -7197,7 +7223,7 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
                 type : "ImageStream",
                 src : config.src,
                 sequence : false,
-                size: 800
+                size: 1280
             };
             config.readyFunc = function() {
                 Events.subscribe("detected", function(result) {
