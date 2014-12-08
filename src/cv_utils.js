@@ -118,6 +118,22 @@ define(['cluster', 'glMatrixAddon', "array_helper"], function(Cluster2, glMatrix
             targetData[length] = imageData[length] < threshold ? 1 : 0;
         }
     };
+    
+    /**
+     * @param {ImageWrapper} sourceImage the source image
+     * @param {Number} threshold the global threshold
+     * @param {SubImage} the image-slice 
+     */
+    CVUtils.thresholdImageSlice = function(sourceImage, threshold, slice) {
+        var sourceData = sourceImage.data,
+            sliceData = slice.image.data,
+            start = (slice.from.y * slice.image.size.x) + slice.from.x,
+            sliceLength = sliceData.length;
+        
+        while (sliceLength--) {
+            sliceData[sliceLength] = sourceData[start + sliceLength] < threshold ? 1 : 0;
+        }
+    };
 
     CVUtils.computeHistogram = function(imageWrapper) {
         var imageData = imageWrapper.data, length = imageData.length, i, hist = new Int32Array(256);
@@ -133,7 +149,7 @@ define(['cluster', 'glMatrixAddon', "array_helper"], function(Cluster2, glMatrix
         return hist;
     };
 
-    CVUtils.otsuThreshold = function(imageWrapper, targetWrapper) {
+    CVUtils.otsuThreshold = function(imageWrapper) {
         var hist, threshold;
 
         function px(init, end) {
@@ -174,7 +190,6 @@ define(['cluster', 'glMatrixAddon', "array_helper"], function(Cluster2, glMatrix
         }
 
         threshold = determineThreshold();
-        CVUtils.thresholdImage(imageWrapper, threshold, targetWrapper);
         return threshold;
     };
 

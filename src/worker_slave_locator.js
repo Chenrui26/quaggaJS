@@ -3,12 +3,11 @@
 
 importScripts('../dist/locator.js');
 
-var inputImageWrapper = null;
+var binaryImageWrapper = null;
 
 self.onmessage = function(e) {
-    console.log(e.data.cmd);
     if (e.data.cmd === 'init') {
-        inputImageWrapper = e.data.inputImageWrapper;
+        binaryImageWrapper = e.data.inputImageWrapper;
         init();
     } else if (e.data.cmd === 'locate') {
         locate(new Uint8Array(e.data.buffer));
@@ -16,7 +15,11 @@ self.onmessage = function(e) {
 };
 
 function init() {
-    Locator.init({
+    binaryImageWrapper = Locator.init({
+        isMaster: false,
+        nrOfSlices: 1,
+        halfSample: false,
+        patchSize: 16,
         showCanvas: false,
         showPatches: false,
         showFoundPatches: false,
@@ -30,16 +33,17 @@ function init() {
           showBB: false
         }
       }, {
-        inputImageWrapper : inputImageWrapper
+        inputImageWrapper : binaryImageWrapper
+    }, function ready(){
+        self.postMessage({'event': 'initialized'});
     });
-    self.postMessage({'event': 'initialized'});
+    
 }
 
 function locate(buffer) {
-    var result;
-    
-    inputImageWrapper.data = buffer;
-    result = Locator.locate();
-    self.postMessage({'event': 'located', result: result, buffer : inputImageWrapper.data}, [inputImageWrapper.data.buffer]);
+    binaryImageWrapper.data = buffer;
+    Locator.locatePatches(function(patchesFound) {
+        self.postMessage({'event': 'located', result: patchesFound, buffer : binaryImageWrapper.data.buffer}, [binaryImageWrapper.data.buffer]);
+    });
 }
 

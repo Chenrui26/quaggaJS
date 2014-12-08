@@ -1,8 +1,8 @@
 /* jshint undef: true, unused: true, browser:true, devel: true */
 /* global define, mat2, vec2 */
 
-define(["image_wrapper", "cv_utils", "rasterizer", "tracer", "skeletonizer", "array_helper", "image_debug"],
-function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, ImageDebug) {
+define(["image_wrapper", "cv_utils", "rasterizer", "tracer", "skeletonizer", "array_helper", "image_debug", "async"],
+function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, ImageDebug, async) {
     "use strict";
     
     var _config,
@@ -14,7 +14,6 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         _patchLabelGrid,
         _imageToPatchGrid,
         _binaryImageWrapper,
-        _halfSample = false,
         _patchSize,
         _canvasContainer = {
             ctx : {
@@ -27,12 +26,13 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         _numPatches = {x: 0, y: 0},
         _inputImageWrapper,
         _skeletonizer,
+        _imageContainer,
         self = this;
 
     function initBuffers() {
         var skeletonImageData;
         
-        if (_halfSample) {
+        if (_config.halfSample) {
             _currentImageWrapper = new ImageWrapper({
                 x : _inputImageWrapper.size.x / 2 | 0,
                 y : _inputImageWrapper.size.y / 2 | 0
@@ -40,16 +40,20 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         } else {
             _currentImageWrapper = _inputImageWrapper;
         }
+        
+        if (_config.isMaster) {
+            _imageContainer = generateImageContainer(_currentImageWrapper, _config.nrOfSlices);
+        }
 
         _patchSize = {
-            x : 16 * ( _halfSample ? 1 : 2),
-            y : 16 * ( _halfSample ? 1 : 2)
+            x : _config.patchSize * ( _config.halfSample ? 1 : 2),
+            y : _config.patchSize * ( _config.halfSample ? 1 : 2)
         };
 
         _numPatches.x = _currentImageWrapper.size.x / _patchSize.x | 0;
         _numPatches.y = _currentImageWrapper.size.y / _patchSize.y | 0;
 
-        _binaryImageWrapper = new ImageWrapper(_currentImageWrapper.size, undefined, Uint8Array, false);
+        _binaryImageWrapper = new ImageWrapper(_currentImageWrapper.size, true);
 
         _labelImageWrapper = new ImageWrapper(_patchSize, undefined, Array, true);
 
@@ -66,6 +70,28 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         }, undefined, Array, true);
         _patchGrid = new ImageWrapper(_imageToPatchGrid.size, undefined, undefined, true);
         _patchLabelGrid = new ImageWrapper(_imageToPatchGrid.size, undefined, Int32Array, true);
+    }
+
+    function initWorkers(callback) {
+        if (!_config.isMaster) {
+            return callback();
+        }
+        async.each(_imageContainer.slices, function(slice, initialized) {
+            var data;
+            
+            slice.worker = new Worker('../src/worker_slave_locator.js');
+            data = slice.image.data;
+            slice.image.data = null;
+            slice.worker.postMessage({cmd: 'init', inputImageWrapper: slice.image});
+            slice.image.data = data;
+            slice.worker.onmessage = function(e) {
+                if (e.data.event === 'initialized') {
+                    initialized(null);
+                }
+            };
+        }, function finished() {
+            callback();
+        });
     }
 
     function initCanvas() {
@@ -143,7 +169,7 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
             ImageDebug.drawPath(box, {x: 0, y: 1}, _canvasContainer.ctx.binary, {color: '#ff0000', lineWidth: 2});
         }
 
-        scale = _halfSample ? 2 : 1;
+        scale = _config.halfSample ? 2 : 1;
         // reverse rotation;
         transMat = mat2.inverse(transMat);
         for ( j = 0; j < 4; j++) {
@@ -161,17 +187,6 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         return box;
     }
 
-    /**
-     * Creates a binary image of the current image
-     */
-    function binarizeImage() {
-        CVUtils.otsuThreshold(_currentImageWrapper, _binaryImageWrapper);
-        _binaryImageWrapper.zeroBorder();
-        if (_config.showCanvas) {
-            _binaryImageWrapper.show(_canvasContainer.dom.binary, 255);
-        }
-    }
-    
     /**
      * Iterate over the entire image
      * extract patches
@@ -471,25 +486,133 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         
         return label;
     }
+    
+    function generateSlices(size, nrOfSlices) {
+        var i = nrOfSlices,
+            x,
+            y,
+            currentSize = {x: size.x, y: size.y},
+            slices = [],
+            foldings = 0,
+            ar = currentSize.x/currentSize.y;
+            
+        while(i > 1){
+            i = i/2;
+            foldings++;
+        }
+        
+        for (i = 0; i < foldings; i++){
+            if (ar >= 1) {
+                currentSize.x = (currentSize.x / 2) | 0;
+            } else {
+                currentSize.y = (currentSize.y / 2) | 0;
+            }
+        }
+        
+        for (y = 0; y < (size.y/currentSize.y); y++){
+            for (x = 0; x < (size.x/currentSize.x); x++) {
+                slices.push({
+                    image: new ImageWrapper({
+                        x: currentSize.x,
+                        y: currentSize.y
+                    }, undefined, Uint8Array, false),
+                    from: {
+                        x: currentSize.x * x,
+                        y: currentSize.y * y
+                    }
+                });
+            }
+        }
+        return slices;
+    }
+    
+    function generateImageContainer(sourceImageWrapper, nrOfSlices) {
+        var container = {
+            slices: generateSlices(sourceImageWrapper.size, nrOfSlices),
+            source: sourceImageWrapper
+        };
+        
+        return container;
+    }
 
     return {
-        init : function(config, data) {
+        init : function(config, data, callback) {
             _config = config;
             _inputImageWrapper = data.inputImageWrapper;
             initBuffers();
             initCanvas();
+            initWorkers(callback);
+            return _binaryImageWrapper;
         },
-        locate : function() {
-            var patchesFound,
-            topLabels = [],
-            boxes = [];
-
-            if (_halfSample) {
+        
+        binarize: function() {
+            var i,
+                threshold,
+                slice;
+                
+            if (_config.halfSample) {
                 CVUtils.halfSample(_inputImageWrapper, _currentImageWrapper);
             }
             
-            binarizeImage();
-            patchesFound = findPatches();
+            threshold = CVUtils.otsuThreshold(_currentImageWrapper);
+            for (i = 0; i < _imageContainer.slices.length; i++) {
+                slice = _imageContainer.slices[i];
+                CVUtils.thresholdImageSlice(_imageContainer.source, threshold, slice);
+                slice.image.zeroBorder();
+                if (_config.showCanvas) {
+                    slice.image.show(_canvasContainer.dom.binary, 255);
+                }
+            }
+        },
+        
+        locatePatches: function(callback) {
+            if (!_config.isMaster) {
+                return callback(findPatches());
+            }
+            
+            function transformPatches(patches, slice){
+                var startIdx = ((slice.from.y/_patchSize.y) | 0) * _numPatches.x + ((slice.from.x/_patchSize.x) | 0);
+
+                patches.forEach(function(patch) {
+                    var i = 0;
+                    
+                    //console.log(patch);
+                    patch.index += startIdx;
+                    patch.pos.x += slice.from.x;
+                    patch.pos.y += slice.from.y;
+                    for (i = 0; i < patch.box.length; i++) {
+                        vec2.add(patch.box[i], [slice.from.x, slice.from.y]);
+                    }
+                    //console.log(patch);
+                });
+                
+                return patches;
+            }
+            
+            async.map(_imageContainer.slices, function(slice, callback) {
+                slice.worker.onmessage = function(e) {
+                    if (e.data.event === 'located') {
+                        slice.image.data = new Uint8Array(e.data.buffer);
+                        callback(null, {result: e.data.result, slice: slice});
+                    }
+                };
+                slice.worker.postMessage({cmd: 'locate', buffer: slice.image.data.buffer}, [slice.image.data.buffer]);
+                slice.image.data = null;
+            }, function finish(err, result){
+                // stitch together slices
+                var patches = [];
+                
+                result.forEach(function(sliceResult) {
+                    // patches = patches.concat(sliceResult.result);
+                    patches = patches.concat(transformPatches(sliceResult.result, sliceResult.slice));
+                });
+                callback(patches);
+            });
+        },
+        findBarcodeFromPatches : function(patchesFound) {
+            var topLabels = [],
+                boxes = [];
+
             // return unless 5% or more patches are found
             if (patchesFound.length < _numPatches.x * _numPatches.y * 0.05) {
                 return;
@@ -508,7 +631,6 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
             }
             
             boxes = findBoxes(topLabels, maxLabel);
-    
             return boxes;
         }
     };
