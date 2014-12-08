@@ -17,7 +17,7 @@ self.onmessage = function(e) {
 function init() {
     Locator.init({
         isMaster: true,
-        nrOfSlices: 8,
+        nrOfSlices: 4,
         halfSample: false,
         patchSize: 16,
         showCanvas: false,

@@ -6150,8 +6150,7 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
             y,
             currentSize = {x: size.x, y: size.y},
             slices = [],
-            foldings = 0,
-            ar = currentSize.x/currentSize.y;
+            foldings = 0;
             
         while(i > 1){
             i = i/2;
@@ -6159,11 +6158,7 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
         }
         
         for (i = 0; i < foldings; i++){
-            if (ar >= 1) {
-                currentSize.x = (currentSize.x / 2) | 0;
-            } else {
-                currentSize.y = (currentSize.y / 2) | 0;
-            }
+            currentSize.y = (currentSize.y / 2) | 0;
         }
         
         for (y = 0; y < (size.y/currentSize.y); y++){
@@ -6229,7 +6224,7 @@ function(ImageWrapper, CVUtils, Rasterizer, Tracer, skeletonizer, ArrayHelper, I
             
             function transformPatches(patches, slice){
                 var startIdx = ((slice.from.y/_patchSize.y) | 0) * _numPatches.x + ((slice.from.x/_patchSize.x) | 0);
-
+                
                 patches.forEach(function(patch) {
                     var i = 0;
                     

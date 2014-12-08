@@ -24,7 +24,7 @@ define(function(){
         ]
       },
       locator: {
-        nrOfSlices: 1,
+        nrOfSlices: 2,
         halfSample: false,
         patchSize: 16,
         showCanvas: false,
