@@ -33,8 +33,6 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
     function located(boxes) {
         var result;
         
-        console.timeEnd("update");
-        // console.log(boxes);
         _canvasContainer.ctx.overlay.clearRect(0, 0, _inputImageWrapper.size.x, _inputImageWrapper.size.y);
         if (boxes) {
             result = _decoder.decodeFromBoundingBoxes(boxes);
@@ -178,7 +176,6 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
         var boxes;
 
         if (_config.locate) {
-            //console.time("Localize");
             _locatorWorker.postMessage({cmd: 'locate', buffer: _inputImageWrapper.data.buffer}, [_inputImageWrapper.data.buffer]);
             _inputImageWrapper.data = null;
             _framegrabber.attachData(null);
@@ -189,8 +186,6 @@ function(Code128Reader, EANReader, InputStream, ImageWrapper, BarcodeLocator, Ba
     }
 
     function update() {
-
-        console.time("update");
         if (_framegrabber.grab()) {
             getBoundingBoxes();
         }
